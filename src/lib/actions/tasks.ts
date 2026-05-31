@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { desc } from "drizzle-orm";
-import { eq } from "drizzle-orm";
+import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 
 import { db, schema } from "@/lib/db";
 import {
@@ -28,6 +28,7 @@ function mapTask(row: typeof tasks.$inferSelect): Task {
     status: row.status,
     dueDate: row.dueDate,
     completedAt: row.completedAt,
+    position: row.position,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -45,9 +46,16 @@ function flattenZodErrors(error: { flatten: () => { fieldErrors: Record<string, 
 /* Reads                                                              */
 /* ------------------------------------------------------------------ */
 
-/** Returns all tasks ordered by most recently updated. */
+/**
+ * Returns all tasks ordered by user-controlled `position` ascending. Ties
+ * (e.g. a fresh database) fall back to most-recently-updated.
+ */
 export async function listTasks(): Promise<Task[]> {
-  const rows = db.select().from(tasks).orderBy(desc(tasks.updatedAt)).all();
+  const rows = db
+    .select()
+    .from(tasks)
+    .orderBy(asc(tasks.position), desc(tasks.updatedAt))
+    .all();
   return rows.map(mapTask);
 }
 
@@ -63,6 +71,16 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
 
   const data = parsed.data;
   const now = nowIso();
+
+  // Newly captured tasks go to the top of the list — drop a position one
+  // less than the current minimum so we don't have to renumber anything.
+  const minPositionRow = db
+    .select({ min: sql<number | null>`MIN(${tasks.position})` })
+    .from(tasks)
+    .get();
+  const minPosition = minPositionRow?.min ?? 0;
+  const position = (minPosition ?? 0) - 1;
+
   const row = {
     id: nanoid(),
     title: data.title,
@@ -71,6 +89,7 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
     status: data.status,
     dueDate: data.dueDate ?? null,
     completedAt: data.status === "done" ? now : null,
+    position,
     createdAt: now,
     updatedAt: now,
   };
@@ -181,5 +200,61 @@ export async function clearCompletedTasks(): Promise<ActionResult<{ count: numbe
   } catch (error) {
     console.error("[stride] clearCompletedTasks failed", error);
     return { ok: false, error: "Could not clear completed tasks." };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Reorder                                                            */
+/* ------------------------------------------------------------------ */
+
+const reorderSchema = z.object({
+  /** Full list of task ids in the new desired top-to-bottom order. */
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+
+/**
+ * Persist a new manual order for the entire task list. The client is the
+ * source of truth here — it knows the optimistic state including any
+ * filters the user has applied — so it sends the full ordering. We
+ * renumber positions 0..N-1 in a single transaction.
+ */
+export async function reorderTasks(input: {
+  orderedIds: string[];
+}): Promise<ActionResult> {
+  const parsed = reorderSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "Invalid reorder payload" };
+  }
+  const { orderedIds } = parsed.data;
+
+  try {
+    // Sanity: only update ids that actually exist. Discard unknown ids
+    // rather than failing the whole reorder.
+    const existing = db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(inArray(tasks.id, orderedIds))
+      .all();
+    const existingSet = new Set(existing.map((row) => row.id));
+    const filtered = orderedIds.filter((id) => existingSet.has(id));
+    if (filtered.length === 0) {
+      return { ok: true };
+    }
+
+    const updateOne = (id: string, position: number) =>
+      db.update(tasks).set({ position, updatedAt: nowIso() }).where(eq(tasks.id, id)).run();
+
+    const tx = db.transaction(() => {
+      for (let i = 0; i < filtered.length; i++) {
+        updateOne(filtered[i]!, i);
+      }
+    });
+    tx();
+
+    revalidatePath("/");
+    return { ok: true };
+  } catch (error) {
+    console.error("[stride] reorderTasks failed", error);
+    return { ok: false, error: "Could not save the new order." };
   }
 }

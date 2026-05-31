@@ -32,3 +32,29 @@ export function toDateInputValue(iso: string | null | undefined): string {
   const d = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Convert a JS `Date` (interpreted in the user's local timezone) into a
+ * `YYYY-MM-DD` string. Useful when a date picker hands you a local-time
+ * Date and you need to round-trip it through a date input.
+ */
+export function dateToInputValue(date: Date): string {
+  if (Number.isNaN(date.getTime())) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Re-anchor an ISO due-date string (stored at UTC midnight) into a local
+ * `Date` representing the same calendar day. This avoids the "off by one"
+ * display bug in negative UTC offsets where `new Date(iso)` would show the
+ * previous day in local time.
+ */
+export function parseDueDate(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}

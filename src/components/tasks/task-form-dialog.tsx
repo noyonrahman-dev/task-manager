@@ -2,11 +2,12 @@
 
 import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createTask, updateTask } from "@/lib/actions/tasks";
 import {
@@ -29,7 +37,7 @@ import {
   type TaskStatus,
 } from "@/lib/constants";
 import type { Task } from "@/lib/types";
-import { cn, toDateInputValue } from "@/lib/utils";
+import { cn, dateToInputValue, parseDateInput, toDateInputValue } from "@/lib/utils";
 import { createTaskSchema } from "@/lib/validations/task";
 
 interface FormValues {
@@ -37,6 +45,7 @@ interface FormValues {
   description: string;
   priority: TaskPriority;
   status: TaskStatus;
+  /** ISO `YYYY-MM-DD`, empty string = unset. Kept as a string so RHF state stays serializable. */
   dueDate: string;
 }
 
@@ -88,14 +97,15 @@ export function TaskFormDialog({
     startTransition(async () => {
       const title = (values.title ?? "").trim();
       const description = (values.description ?? "").trim();
-      const dueDate = (values.dueDate ?? "").trim();
+      // Convert the YYYY-MM-DD form value into a UTC-anchored ISO string.
+      const dueDateIso = parseDateInput(values.dueDate);
 
       const payload = {
         title,
         description: description || undefined,
         priority: values.priority,
         status: values.status,
-        dueDate: dueDate || undefined,
+        dueDate: dueDateIso ?? undefined,
       };
 
       const result = isEditing && task
@@ -188,24 +198,41 @@ export function TaskFormDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="status">Status</Label>
-              <select
-                id="status"
-                className={cn(
-                  "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              <Controller
+                control={form.control}
+                name="status"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="status">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TASK_STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {STATUS_LABEL[s]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
-                {...form.register("status")}
-              >
-                {TASK_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABEL[s]}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dueDate">Due date</Label>
-              <Input id="dueDate" type="date" {...form.register("dueDate")} />
+              <Controller
+                control={form.control}
+                name="dueDate"
+                render={({ field }) => {
+                  const date = field.value ? parseInputDateAsLocal(field.value) : null;
+                  return (
+                    <DatePicker
+                      value={date}
+                      onChange={(d) => field.onChange(d ? dateToInputValue(d) : "")}
+                      buttonProps={{ id: "dueDate" }}
+                    />
+                  );
+                }}
+              />
             </div>
           </div>
 
@@ -235,6 +262,21 @@ export function TaskFormDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * Treat `YYYY-MM-DD` as a calendar day in the user's locale (not UTC), so the
+ * Calendar highlights the same day the user picked even if the timezone
+ * differs. We round-trip to UTC only when persisting.
+ */
+function parseInputDateAsLocal(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const y = match[1];
+  const m = match[2];
+  const d = match[3];
+  if (!y || !m || !d) return null;
+  return new Date(Number(y), Number(m) - 1, Number(d));
 }
 
 function getDefaults(task: Task | undefined, fallbackStatus: TaskStatus): FormValues {
