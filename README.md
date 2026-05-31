@@ -13,7 +13,7 @@
 ## Highlights
 
 - **Minimal core**: capture, prioritize, complete. No clutter.
-- **Priority‑first**: urgency is sorted up the list automatically.
+- **Drag to reorder**: a grip handle on every card lets you arrange the list however you want — keyboard-accessible (`Tab` to grip, `Space` to lift, arrows to move, `Enter` to drop).
 - **Status workflow**: `To do → In progress → Done`, accessible in one click.
 - **Snappy UI**: optimistic updates with React 19 `useOptimistic`.
 - **Fully responsive**: a thoughtful experience on phone, tablet, and desktop.
@@ -30,6 +30,8 @@
 | Styling     | Tailwind CSS v3.4 + `tailwindcss-animate`  |
 | UI          | shadcn-style primitives on [Radix UI](https://www.radix-ui.com/) |
 | Forms       | `react-hook-form` + `zod` (`@hookform/resolvers`) |
+| Drag & drop | [`@dnd-kit`](https://dndkit.com) (core, sortable, modifiers) — accessible by default |
+| Calendar    | [`react-day-picker`](https://react-day-picker.js.org) v9 |
 | Database    | SQLite via [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) |
 | ORM         | [Drizzle](https://orm.drizzle.team) (with `drizzle-kit` for migrations) |
 | Toasts      | [`sonner`](https://sonner.emilkowal.ski)   |
@@ -109,10 +111,11 @@ Tasks are stored in a single indexed table:
 | `status`      | `text`         | `todo \| in_progress \| done`          |
 | `due_date`    | `text?`        | ISO‑8601 string                        |
 | `completed_at`| `text?`        | Set when status becomes `done`         |
+| `position`    | `real`         | User-controlled order (drag to reorder)|
 | `created_at`  | `text`         | ISO‑8601, defaulted by SQLite          |
 | `updated_at`  | `text`         | ISO‑8601, written on every mutation    |
 
-Indexes cover `status`, `priority`, `due_date`, and `created_at` so the
+Indexes cover `status`, `priority`, `due_date`, `position`, and `created_at` so the
 dashboard sort/filter operations stay cheap as the dataset grows.
 
 The very first connection runs an idempotent

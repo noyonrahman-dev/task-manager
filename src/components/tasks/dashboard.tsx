@@ -10,14 +10,11 @@ import { TaskFilters, type TaskFiltersValue } from "@/components/tasks/task-filt
 import { TaskFormDialog } from "@/components/tasks/task-form-dialog";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskStats } from "@/components/tasks/task-stats";
-import {
-  PRIORITY_WEIGHT,
-  STATUS_WEIGHT,
-  type TaskStatus,
-} from "@/lib/constants";
+import { type TaskStatus } from "@/lib/constants";
 import {
   clearCompletedTasks,
   deleteTask,
+  reorderTasks,
   toggleTaskDone,
 } from "@/lib/actions/tasks";
 import type { Task } from "@/lib/types";
@@ -29,7 +26,8 @@ interface DashboardProps {
 type OptimisticAction =
   | { type: "toggle"; id: string }
   | { type: "delete"; id: string }
-  | { type: "clear-completed" };
+  | { type: "clear-completed" }
+  | { type: "reorder"; tasks: Task[] };
 
 function optimisticReducer(state: Task[], action: OptimisticAction): Task[] {
   switch (action.type) {
@@ -49,6 +47,8 @@ function optimisticReducer(state: Task[], action: OptimisticAction): Task[] {
       return state.filter((t) => t.id !== action.id);
     case "clear-completed":
       return state.filter((t) => t.status !== "done");
+    case "reorder":
+      return action.tasks;
     default:
       return state;
   }
@@ -95,6 +95,39 @@ export function Dashboard({ initialTasks }: DashboardProps) {
     });
   }
 
+  function handleReorder(nextVisible: Task[]) {
+    // Helper: mirror the filter logic used to build `visibleTasks` below.
+    const isVisible = (t: Task): boolean => {
+      if (filters.status !== "all" && t.status !== filters.status) return false;
+      if (filters.priority !== "all" && t.priority !== filters.priority) return false;
+      const q = filters.query.trim().toLowerCase();
+      if (q && !`${t.title} ${t.description ?? ""}`.toLowerCase().includes(q)) return false;
+      return true;
+    };
+
+    // The visible list is a filtered subset of the global list. We rebuild
+    // a new global ordering by walking the global list and replacing each
+    // "visible slot" (a task that is currently visible) with the next task
+    // from `nextVisible`. Hidden tasks keep their global positions.
+    const visibleIds = new Set(optimisticTasks.filter(isVisible).map((t) => t.id));
+    let cursor = 0;
+    const nextGlobal: Task[] = [];
+    for (const task of optimisticTasks) {
+      if (visibleIds.has(task.id)) {
+        const replacement = nextVisible[cursor++];
+        if (replacement) nextGlobal.push(replacement);
+      } else {
+        nextGlobal.push(task);
+      }
+    }
+
+    startTransition(async () => {
+      applyOptimistic({ type: "reorder", tasks: nextGlobal });
+      const r = await reorderTasks({ orderedIds: nextGlobal.map((t) => t.id) });
+      if (!r.ok) toast.error(r.error ?? "Could not save the new order");
+    });
+  }
+
   const counts = React.useMemo(() => {
     const c = { all: optimisticTasks.length, todo: 0, in_progress: 0, done: 0 } as Record<
       "all" | TaskStatus,
@@ -108,14 +141,14 @@ export function Dashboard({ initialTasks }: DashboardProps) {
 
   const visibleTasks = React.useMemo(() => {
     const q = filters.query.trim().toLowerCase();
-    return optimisticTasks
-      .filter((t) => {
-        if (filters.status !== "all" && t.status !== filters.status) return false;
-        if (filters.priority !== "all" && t.priority !== filters.priority) return false;
-        if (q && !`${t.title} ${t.description ?? ""}`.toLowerCase().includes(q)) return false;
-        return true;
-      })
-      .sort(compareTasks);
+    // Order matches the global order — drag-and-drop is the source of truth
+    // now; we no longer apply automatic priority/status sorting.
+    return optimisticTasks.filter((t) => {
+      if (filters.status !== "all" && t.status !== filters.status) return false;
+      if (filters.priority !== "all" && t.priority !== filters.priority) return false;
+      if (q && !`${t.title} ${t.description ?? ""}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
   }, [optimisticTasks, filters]);
 
   const isEmpty = optimisticTasks.length === 0;
@@ -189,34 +222,12 @@ export function Dashboard({ initialTasks }: DashboardProps) {
             tasks={visibleTasks}
             onToggleDone={handleToggle}
             onDelete={handleDelete}
+            onReorder={handleReorder}
           />
         )}
       </section>
     </div>
   );
-}
-
-function compareTasks(a: Task, b: Task): number {
-  // Status weight desc (in_progress first, done last)
-  const statusDiff = STATUS_WEIGHT[b.status] - STATUS_WEIGHT[a.status];
-  if (statusDiff !== 0) return statusDiff;
-
-  // Priority weight desc
-  const priorityDiff = PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
-  if (priorityDiff !== 0) return priorityDiff;
-
-  // Due date asc (sooner first), tasks without due dates last
-  if (a.dueDate && b.dueDate) {
-    const d = new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-    if (d !== 0) return d;
-  } else if (a.dueDate) {
-    return -1;
-  } else if (b.dueDate) {
-    return 1;
-  }
-
-  // Newest created first
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
 function Greeting() {
