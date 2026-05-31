@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+# Sitemap is generated dynamically by Next.js. Add it here if you publish
+# a sitemap.ts file in src/app.
+# Sitemap: https://your-domain.com/sitemap.xml
