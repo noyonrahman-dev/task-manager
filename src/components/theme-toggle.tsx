@@ -5,36 +5,60 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
+type Theme = "light" | "dark" | "system";
+
+const NEXT_THEME: Record<Theme, Theme> = {
+  light: "dark",
+  dark: "system",
+  system: "light",
+};
+const NEXT_LABEL: Record<Theme, string> = {
+  light: "Switch to dark theme",
+  dark: "Switch to system theme",
+  system: "Switch to light theme",
+};
+
+/**
+ * Cycling theme toggle. One click advances `light → dark → system → light`.
+ * The icon reflects the *current* theme, so users always see what's active
+ * (not what's about to happen). Hydration-safe: shows a neutral icon until
+ * the theme is read on the client.
+ */
 export function ThemeToggle() {
-  const { setTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const current: Theme = mounted && isTheme(theme) ? theme : "system";
+  const next = NEXT_THEME[current];
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Toggle theme">
-          <Sun className="size-4 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute size-4 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          <Sun /> Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          <Moon /> Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
-          <Monitor /> System
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(next)}
+      aria-label={NEXT_LABEL[current]}
+      title={`Theme: ${current[0]?.toUpperCase()}${current.slice(1)} · click to cycle`}
+    >
+      {!mounted ? (
+        // Render a neutral, theme-agnostic placeholder until hydration so
+        // the markup matches between server and client.
+        <Sun className="size-4 opacity-0" aria-hidden />
+      ) : current === "light" ? (
+        <Sun className="size-4" />
+      ) : current === "dark" ? (
+        <Moon className="size-4" />
+      ) : (
+        <Monitor className="size-4" />
+      )}
+    </Button>
   );
+}
+
+function isTheme(value: string | undefined): value is Theme {
+  return value === "light" || value === "dark" || value === "system";
 }

@@ -22,18 +22,3 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
   in_progress: "In progress",
   done: "Done",
 };
-
-/** Sort weight for priority — higher number sorts first. */
-export const PRIORITY_WEIGHT: Record<TaskPriority, number> = {
-  urgent: 4,
-  high: 3,
-  medium: 2,
-  low: 1,
-};
-
-/** Sort weight for status — higher number sorts first. */
-export const STATUS_WEIGHT: Record<TaskStatus, number> = {
-  in_progress: 3,
-  todo: 2,
-  done: 1,
-};

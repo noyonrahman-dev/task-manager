@@ -2,7 +2,7 @@ import { CalendarClock, CheckCircle2, ListTodo, Loader2 } from "lucide-react";
 import { isToday } from "date-fns";
 
 import type { Task } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, parseDueDate } from "@/lib/utils";
 
 interface StatCard {
   label: string;
@@ -16,9 +16,11 @@ export function TaskStats({ tasks }: { tasks: Task[] }) {
   const total = tasks.length;
   const completed = tasks.filter((t) => t.status === "done").length;
   const inProgress = tasks.filter((t) => t.status === "in_progress").length;
-  const dueToday = tasks.filter(
-    (t) => t.status !== "done" && t.dueDate && isToday(new Date(t.dueDate)),
-  ).length;
+  const dueToday = tasks.filter((t) => {
+    if (t.status === "done" || !t.dueDate) return false;
+    const d = parseDueDate(t.dueDate);
+    return d ? isToday(d) : false;
+  }).length;
 
   const cards: StatCard[] = [
     {

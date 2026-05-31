@@ -10,6 +10,7 @@ export interface Task {
   status: TaskStatus;
   dueDate: string | null;
   completedAt: string | null;
+  position: number;
   createdAt: string;
   updatedAt: string;
 }

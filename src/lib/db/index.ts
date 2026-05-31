@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status       TEXT NOT NULL DEFAULT 'todo',
   due_date     TEXT,
   completed_at TEXT,
+  position     REAL NOT NULL DEFAULT 0,
   created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -46,7 +47,51 @@ CREATE INDEX IF NOT EXISTS tasks_status_idx     ON tasks (status);
 CREATE INDEX IF NOT EXISTS tasks_priority_idx   ON tasks (priority);
 CREATE INDEX IF NOT EXISTS tasks_due_date_idx   ON tasks (due_date);
 CREATE INDEX IF NOT EXISTS tasks_created_at_idx ON tasks (created_at);
+CREATE INDEX IF NOT EXISTS tasks_position_idx   ON tasks (position);
 `;
+
+/**
+ * Forward-only column upgrades for databases that pre-date a schema change.
+ * Each entry: { column to look for, ALTER to run if missing, optional
+ * back-fill statement }. SQLite has no `ADD COLUMN IF NOT EXISTS`, so we
+ * inspect `pragma table_info` first.
+ */
+interface ColumnUpgrade {
+  table: string;
+  column: string;
+  alter: string;
+  backfill?: string;
+}
+
+const COLUMN_UPGRADES: ColumnUpgrade[] = [
+  {
+    table: "tasks",
+    column: "position",
+    alter: "ALTER TABLE tasks ADD COLUMN position REAL NOT NULL DEFAULT 0",
+    // Seed positions from creation order so existing tasks keep a stable
+    // visible order until the user starts dragging.
+    backfill: `
+      UPDATE tasks
+      SET position = (
+        SELECT COUNT(*) FROM tasks AS t2 WHERE t2.created_at < tasks.created_at
+      )
+      WHERE position = 0
+    `,
+  },
+];
+
+function applyColumnUpgrades(sqlite: Database.Database) {
+  for (const upgrade of COLUMN_UPGRADES) {
+    const cols = sqlite
+      .prepare(`PRAGMA table_info(${upgrade.table})`)
+      .all() as Array<{ name: string }>;
+    const hasColumn = cols.some((c) => c.name === upgrade.column);
+    if (!hasColumn) {
+      sqlite.exec(upgrade.alter);
+      if (upgrade.backfill) sqlite.exec(upgrade.backfill);
+    }
+  }
+}
 
 type DrizzleClient = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -69,6 +114,7 @@ function createClient(): DrizzleClient {
 
   if (!globalForDb.__strideBootstrapped) {
     sqlite.exec(BOOTSTRAP_SQL);
+    applyColumnUpgrades(sqlite);
     globalForDb.__strideBootstrapped = true;
   }
 

@@ -6,11 +6,14 @@ import {
   Check,
   Circle,
   CircleDot,
+  GripVertical,
   MoreHorizontal,
   Pencil,
   Trash2,
 } from "lucide-react";
 import { format, formatDistanceToNowStrict, isPast, isToday } from "date-fns";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,13 +36,15 @@ import {
 } from "@/lib/actions/tasks";
 import { STATUS_LABEL, TASK_STATUSES, type TaskStatus } from "@/lib/constants";
 import type { Task } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, parseDueDate } from "@/lib/utils";
 
 interface TaskCardProps {
   task: Task;
   /** Optional optimistic toggle handler. Falls back to direct server action. */
   onToggleDone?: (id: string) => void;
   onDelete?: (id: string) => void;
+  /** Whether drag-to-reorder is currently allowed. Disables the grip handle. */
+  draggable?: boolean;
 }
 
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
@@ -48,9 +53,33 @@ const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }
   done: Check,
 };
 
-export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
+export function TaskCard({
+  task,
+  onToggleDone,
+  onDelete,
+  draggable = true,
+}: TaskCardProps) {
   const [editing, setEditing] = React.useState(false);
   const [, startTransition] = React.useTransition();
+
+  const sortable = useSortable({
+    id: task.id,
+    disabled: !draggable,
+  });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = sortable;
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  };
 
   const isDone = task.status === "done";
 
@@ -89,7 +118,7 @@ export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
     });
   }
 
-  const due = task.dueDate ? new Date(task.dueDate) : null;
+  const due = parseDueDate(task.dueDate);
   const overdue = due ? !isDone && isPast(due) && !isToday(due) : false;
   const dueLabel = due
     ? isToday(due)
@@ -101,12 +130,39 @@ export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
 
   return (
     <div
+      ref={setNodeRef}
+      style={style}
       className={cn(
-        "group flex gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all animate-fade-in",
+        "group flex gap-2 rounded-xl border bg-card p-4 shadow-sm transition-all animate-fade-in",
         "hover:border-border hover:shadow-md",
         isDone && "opacity-70",
+        isDragging && "z-10 shadow-lg ring-2 ring-ring/40",
       )}
     >
+      {/* Drag handle — only this surface initiates a drag, so checkbox / menu
+          interactions on the card are unaffected. */}
+      <button
+        ref={setActivatorNodeRef}
+        type="button"
+        aria-label={draggable ? "Drag to reorder" : "Reordering disabled while filters are active"}
+        disabled={!draggable}
+        {...attributes}
+        {...listeners}
+        className={cn(
+          "-ml-1 mt-0.5 grid size-7 shrink-0 cursor-grab touch-none place-items-center rounded-md text-muted-foreground/50 transition-colors",
+          "hover:bg-accent hover:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          "active:cursor-grabbing",
+          "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground/50",
+          // On hover-capable devices, hide until the row is hovered/focused;
+          // on touch devices keep it always visible so it's reachable.
+          "sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100",
+          isDragging && "sm:opacity-100",
+        )}
+      >
+        <GripVertical className="size-4" />
+      </button>
+
       <div className="pt-0.5">
         <Checkbox
           checked={isDone}

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /**
  * Tasks table.
@@ -27,6 +27,12 @@ export const tasks = sqliteTable(
       .default("todo"),
     dueDate: text("due_date"),
     completedAt: text("completed_at"),
+    /**
+     * User-controlled sort order. Stored as a real (float) so we can insert
+     * between two existing tasks without renumbering — drag-and-drop assigns
+     * the average of the two neighbouring positions. Lower values sort first.
+     */
+    position: real("position").notNull().default(0),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -39,6 +45,7 @@ export const tasks = sqliteTable(
     priorityIdx: index("tasks_priority_idx").on(table.priority),
     dueDateIdx: index("tasks_due_date_idx").on(table.dueDate),
     createdAtIdx: index("tasks_created_at_idx").on(table.createdAt),
+    positionIdx: index("tasks_position_idx").on(table.position),
   }),
 );
 

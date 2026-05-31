@@ -5,6 +5,13 @@ import { Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   PRIORITY_LABEL,
   STATUS_LABEL,
   TASK_PRIORITIES,
@@ -43,24 +50,25 @@ export function TaskFilters({ value, counts, onChange }: TaskFiltersProps) {
             aria-label="Search tasks"
           />
         </div>
-        <select
+        <Select
           value={value.priority}
-          onChange={(e) =>
-            onChange({ ...value, priority: e.target.value as PriorityFilter })
-          }
-          aria-label="Filter by priority"
-          className={cn(
-            "flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          )}
+          onValueChange={(v) => onChange({ ...value, priority: v as PriorityFilter })}
         >
-          <option value="all">All priorities</option>
-          {TASK_PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {PRIORITY_LABEL[p]}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            aria-label="Filter by priority"
+            className="w-full sm:w-[180px]"
+          >
+            <SelectValue placeholder="All priorities" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All priorities</SelectItem>
+            {TASK_PRIORITIES.map((p) => (
+              <SelectItem key={p} value={p}>
+                {PRIORITY_LABEL[p]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div
