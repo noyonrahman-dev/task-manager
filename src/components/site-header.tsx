@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Github } from "lucide-react";
 
+import { InstallButton } from "@/components/pwa/install-button";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -15,6 +16,7 @@ export function SiteHeader() {
         </Link>
 
         <div className="flex items-center gap-1">
+          <InstallButton />
           <Button
             asChild
             variant="ghost"

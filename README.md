@@ -15,7 +15,10 @@
 - **Minimal core**: capture, prioritize, complete. No clutter.
 - **Priority‑first**: urgency is sorted up the list automatically.
 - **Status workflow**: `To do → In progress → Done`, accessible in one click.
-- **Snappy UI**: optimistic updates with React 19 `useOptimistic`.
+- **Installable PWA** with offline support: install to home screen / dock,
+  keep working without a connection, and changes sync automatically when
+  you're back online.
+- **Snappy UI**: optimistic updates with on-device revert on failure.
 - **Fully responsive**: a thoughtful experience on phone, tablet, and desktop.
 - **Light & dark modes** with system sync via `next-themes`.
 - **Production-ready foundation**: server actions, typed validation, indexed
@@ -30,6 +33,7 @@
 | Styling     | Tailwind CSS v3.4 + `tailwindcss-animate`  |
 | UI          | shadcn-style primitives on [Radix UI](https://www.radix-ui.com/) |
 | Forms       | `react-hook-form` + `zod` (`@hookform/resolvers`) |
+| PWA         | [Serwist](https://serwist.pages.dev) (Workbox successor) + [`idb`](https://github.com/jakearchibald/idb) |
 | Database    | SQLite via [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3) |
 | ORM         | [Drizzle](https://orm.drizzle.team) (with `drizzle-kit` for migrations) |
 | Toasts      | [`sonner`](https://sonner.emilkowal.ski)   |
@@ -125,7 +129,114 @@ npm run db:generate     # creates src/lib/db/migrations/NNNN_*.sql
 npm run db:migrate      # applies them
 ```
 
-## Deployment notes
+## Progressive Web App & offline
+
+Stride is a fully installable Progressive Web App. The first time you load it
+online, the browser caches the app shell so the dashboard keeps working
+without a network connection.
+
+### What's included
+
+- **Web App Manifest** at `/manifest.webmanifest` (generated from
+  `src/app/manifest.ts`) with `display: standalone`, `display_override` for
+  Chrome's window-controls overlay, three icon sizes (192 + 512 + a 512
+  maskable variant for Android adaptive icons), and a "Create new task"
+  jump-list shortcut.
+- **Service worker** built with [Serwist](https://serwist.pages.dev) — the
+  modern Workbox/next-pwa successor. It precaches Next's static output,
+  applies sensible runtime caches for fonts/images/scripts, and serves a
+  static `/offline` page when both network and the runtime page cache miss.
+- **Install affordances** — the header shows an "Install" button when the
+  browser fires `beforeinstallprompt` (Chrome / Edge / Android). On iOS
+  Safari (where Apple doesn't expose a native prompt) it opens a
+  step-by-step "Add to Home Screen" walkthrough.
+- **Update flow** — when a new service worker installs, a sticky toast
+  prompts the user to refresh; clicking "Refresh" posts `SKIP_WAITING` and
+  triggers a single page reload.
+- **Offline mutation queue** — every create / update / toggle / delete /
+  clear-completed action goes through a wrapper that queues in IndexedDB
+  if the network is unreachable. The queue drains automatically on the
+  next `online` event (and on visibility change as a fallback for iOS
+  Safari, which doesn't reliably fire `online` after sleep).
+- **Connectivity banner** — a slim status strip below the site header
+  shows three states: offline, offline with N pending, and "syncing N…"
+  while the queue drains. It only renders when there's something useful
+  to say.
+- **Last-known list** — every render writes the visible task list to
+  IndexedDB. The `/offline` fallback page reads from that cache so a
+  cold-start while offline still has something useful to show.
+
+### Architecture diagram (data flow)
+
+```
+   Dashboard / Card / Form
+         │
+         ▼
+   useTasks() store ─── optimistic update ──► UI renders
+         │
+         ▼
+   runX() wrapper
+         │
+   ┌─────┴────────┐
+   │              │
+   ▼              ▼
+ server action   navigator.onLine === false
+   (online)        │
+                   ▼
+              IndexedDB queue ──► drained on `online` event
+                                          │
+                                          ▼
+                                  router.refresh()
+```
+
+Because every mutation is optimistic locally and idempotent server-side
+(client-generated nanoid `id`s on create, `INSERT … OR IGNORE` semantics
+on replay), the worst-case offline timeline of `create → toggle → toggle`
+replays cleanly when the network returns.
+
+### Files involved
+
+```
+src/
+├── app/
+│   ├── sw.ts                     # Service worker (Serwist)
+│   ├── manifest.ts               # Dynamic Web App Manifest
+│   ├── icon-192.png/route.ts     # PWA icons via ImageResponse
+│   ├── icon-512.png/route.ts
+│   ├── icon-maskable.png/route.ts
+│   └── offline/                  # Static fallback page
+├── components/
+│   ├── pwa/
+│   │   ├── pwa.tsx                          # Top-level wiring
+│   │   ├── service-worker-registration.tsx  # Registers /sw.js
+│   │   ├── update-toast.tsx                 # SW update prompt
+│   │   ├── auto-sync.tsx                    # Drains queue on `online`
+│   │   ├── offline-banner.tsx               # Connectivity status strip
+│   │   └── install-button.tsx               # beforeinstallprompt + iOS guide
+│   └── tasks/
+│       └── tasks-store.tsx       # Context-backed offline-aware store
+└── lib/
+    └── pwa/
+        ├── db.ts        # IndexedDB schema + accessors
+        ├── actions.ts   # Server-action wrappers (online → server, offline → queue)
+        ├── sync.ts      # drainQueue() — replay logic
+        └── hooks.ts     # useOnline / useInstallPrompt / useQueueDepth
+```
+
+### Verifying it works
+
+1. `pnpm build && pnpm start` (the service worker is intentionally
+   disabled during `next dev` to avoid breaking hot reload).
+2. Open Chrome DevTools → **Application** → **Manifest** — confirm name,
+   icons, and shortcuts.
+3. Application → **Service Workers** — should show `sw.js` activated.
+4. Run a Lighthouse audit (Installable + Performance) — Stride passes the
+   PWA installability checks out of the box.
+5. Toggle the "Offline" checkbox in DevTools → mutate a task → see the
+   "Saved offline" toast and the banner counter increment.
+6. Re-enable network → the queue drains and the dashboard refreshes.
+
+
 
 - **Self-hosted (recommended for a personal app)**: SQLite + a persistent
   volume works out of the box. Use a Node host (Fly, Railway, Render, your
@@ -152,7 +263,7 @@ The architecture deliberately leaves room for the integrations you'll add next:
 - [ ] **Multi-user** — add an `auth` provider (Auth.js) and scope tasks by
       `userId`.
 - [ ] **Keyboard shortcuts** — `n` to add, `j/k` to navigate, `e` to edit.
-- [ ] **PWA / offline** — service worker + IndexedDB cache.
+- [x] **PWA / offline** — service worker + IndexedDB cache.
 
 ## Accessibility & UX notes
 

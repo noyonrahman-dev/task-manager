@@ -4,7 +4,6 @@ import * as React from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { createTask, updateTask } from "@/lib/actions/tasks";
+import { useTasks } from "@/components/tasks/tasks-store";
 import {
   PRIORITY_LABEL,
   STATUS_LABEL,
@@ -69,6 +68,7 @@ export function TaskFormDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
   const [isSubmitting, startTransition] = React.useTransition();
+  const { createTask, updateTask } = useTasks();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createTaskSchema),
@@ -99,23 +99,10 @@ export function TaskFormDialog({
       };
 
       const result = isEditing && task
-        ? await updateTask({ id: task.id, ...payload })
+        ? await updateTask(task.id, payload)
         : await createTask(payload);
 
-      if (!result.ok) {
-        if (result.fieldErrors) {
-          for (const [name, messages] of Object.entries(result.fieldErrors)) {
-            const message = messages?.[0];
-            if (message) {
-              form.setError(name as keyof FormValues, { type: "server", message });
-            }
-          }
-        }
-        toast.error(result.error ?? "Something went wrong");
-        return;
-      }
-      toast.success(isEditing ? "Task updated" : "Task created");
-      setOpen(false);
+      if (result.ok) setOpen(false);
     });
   }
 

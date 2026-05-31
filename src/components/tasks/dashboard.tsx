@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { Plus, Sparkles, Trash } from "lucide-react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/tasks/empty-state";
@@ -10,105 +9,63 @@ import { TaskFilters, type TaskFiltersValue } from "@/components/tasks/task-filt
 import { TaskFormDialog } from "@/components/tasks/task-form-dialog";
 import { TaskList } from "@/components/tasks/task-list";
 import { TaskStats } from "@/components/tasks/task-stats";
-import {
-  PRIORITY_WEIGHT,
-  STATUS_WEIGHT,
-  type TaskStatus,
-} from "@/lib/constants";
-import {
-  clearCompletedTasks,
-  deleteTask,
-  toggleTaskDone,
-} from "@/lib/actions/tasks";
+import { TasksProvider, useTasks } from "@/components/tasks/tasks-store";
+import { PRIORITY_WEIGHT, STATUS_WEIGHT, type TaskStatus } from "@/lib/constants";
 import type { Task } from "@/lib/types";
 
 interface DashboardProps {
   initialTasks: Task[];
 }
 
-type OptimisticAction =
-  | { type: "toggle"; id: string }
-  | { type: "delete"; id: string }
-  | { type: "clear-completed" };
-
-function optimisticReducer(state: Task[], action: OptimisticAction): Task[] {
-  switch (action.type) {
-    case "toggle": {
-      return state.map((t) => {
-        if (t.id !== action.id) return t;
-        const next: TaskStatus = t.status === "done" ? "todo" : "done";
-        return {
-          ...t,
-          status: next,
-          completedAt: next === "done" ? new Date().toISOString() : null,
-          updatedAt: new Date().toISOString(),
-        };
-      });
-    }
-    case "delete":
-      return state.filter((t) => t.id !== action.id);
-    case "clear-completed":
-      return state.filter((t) => t.status !== "done");
-    default:
-      return state;
-  }
+/**
+ * Top-level wrapper. Lifts the `TasksProvider` so every descendant
+ * (cards, dialogs) shares the same offline-aware client state.
+ */
+export function Dashboard({ initialTasks }: DashboardProps) {
+  return (
+    <TasksProvider initialTasks={initialTasks}>
+      <DashboardInner />
+    </TasksProvider>
+  );
 }
 
-export function Dashboard({ initialTasks }: DashboardProps) {
+function DashboardInner() {
+  const { tasks, clearCompleted } = useTasks();
   const [createOpen, setCreateOpen] = React.useState(false);
   const [filters, setFilters] = React.useState<TaskFiltersValue>({
     query: "",
     status: "all",
     priority: "all",
   });
-  const [optimisticTasks, applyOptimistic] = React.useOptimistic(
-    initialTasks,
-    optimisticReducer,
-  );
-  const [, startTransition] = React.useTransition();
 
-  function handleToggle(id: string) {
-    startTransition(async () => {
-      applyOptimistic({ type: "toggle", id });
-      const r = await toggleTaskDone({ id });
-      if (!r.ok) toast.error(r.error ?? "Could not update task");
-    });
-  }
-
-  function handleDelete(id: string) {
-    startTransition(async () => {
-      applyOptimistic({ type: "delete", id });
-      const r = await deleteTask({ id });
-      if (!r.ok) toast.error(r.error ?? "Could not delete task");
-      else toast.success("Task deleted");
-    });
-  }
-
-  function handleClearCompleted() {
-    startTransition(async () => {
-      applyOptimistic({ type: "clear-completed" });
-      const r = await clearCompletedTasks();
-      if (!r.ok) toast.error(r.error ?? "Could not clear completed tasks");
-      else if (r.data && r.data.count > 0) {
-        toast.success(`Cleared ${r.data.count} completed task${r.data.count === 1 ? "" : "s"}`);
-      }
-    });
-  }
+  // Honor `?action=new-task` (the install-time PWA shortcut). We strip the
+  // query param after handling so refreshing doesn't re-open the dialog.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") === "new-task") {
+      setCreateOpen(true);
+      params.delete("action");
+      const qs = params.toString();
+      const url = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
+      window.history.replaceState(null, "", url);
+    }
+  }, []);
 
   const counts = React.useMemo(() => {
-    const c = { all: optimisticTasks.length, todo: 0, in_progress: 0, done: 0 } as Record<
+    const c = { all: tasks.length, todo: 0, in_progress: 0, done: 0 } as Record<
       "all" | TaskStatus,
       number
     >;
-    for (const t of optimisticTasks) c[t.status] += 1;
+    for (const t of tasks) c[t.status] += 1;
     return c;
-  }, [optimisticTasks]);
+  }, [tasks]);
 
   const completedCount = counts.done;
 
   const visibleTasks = React.useMemo(() => {
     const q = filters.query.trim().toLowerCase();
-    return optimisticTasks
+    return tasks
       .filter((t) => {
         if (filters.status !== "all" && t.status !== filters.status) return false;
         if (filters.priority !== "all" && t.priority !== filters.priority) return false;
@@ -116,9 +73,9 @@ export function Dashboard({ initialTasks }: DashboardProps) {
         return true;
       })
       .sort(compareTasks);
-  }, [optimisticTasks, filters]);
+  }, [tasks, filters]);
 
-  const isEmpty = optimisticTasks.length === 0;
+  const isEmpty = tasks.length === 0;
   const isFiltered =
     !isEmpty &&
     visibleTasks.length === 0 &&
@@ -128,7 +85,7 @@ export function Dashboard({ initialTasks }: DashboardProps) {
     <div className="space-y-6 sm:space-y-8">
       <Greeting />
 
-      <TaskStats tasks={optimisticTasks} />
+      <TaskStats tasks={tasks} />
 
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -138,7 +95,7 @@ export function Dashboard({ initialTasks }: DashboardProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleClearCompleted}
+                onClick={() => void clearCompleted()}
                 className="text-muted-foreground"
               >
                 <Trash className="size-4" />
@@ -185,11 +142,7 @@ export function Dashboard({ initialTasks }: DashboardProps) {
             }
           />
         ) : (
-          <TaskList
-            tasks={visibleTasks}
-            onToggleDone={handleToggle}
-            onDelete={handleDelete}
-          />
+          <TaskList tasks={visibleTasks} />
         )}
       </section>
     </div>

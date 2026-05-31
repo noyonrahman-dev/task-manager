@@ -63,8 +63,20 @@ export async function createTask(input: CreateTaskInput): Promise<ActionResult<T
 
   const data = parsed.data;
   const now = nowIso();
+  const id = data.id ?? nanoid();
+
+  // If a client-generated id was supplied (offline replay) and the row is
+  // already present, treat the create as a no-op. This makes replays from
+  // the offline mutation queue idempotent.
+  if (data.id) {
+    const existing = db.select().from(tasks).where(eq(tasks.id, id)).get();
+    if (existing) {
+      return { ok: true, data: mapTask(existing) };
+    }
+  }
+
   const row = {
-    id: nanoid(),
+    id,
     title: data.title,
     description: data.description ?? null,
     priority: data.priority,

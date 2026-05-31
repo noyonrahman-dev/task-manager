@@ -33,6 +33,13 @@ const dueDateSchema = z
   .transform((v) => (v && v.length > 0 ? v : undefined));
 
 export const createTaskSchema = z.object({
+  /**
+   * Optional client-generated id. Used by the offline mutation queue so
+   * a task created while offline keeps the same id once the queued create
+   * is replayed against the server. The server falls back to a fresh
+   * nanoid when this is absent.
+   */
+  id: z.string().min(1).max(64).optional(),
   title: titleSchema,
   description: descriptionSchema,
   priority: prioritySchema.default("medium"),

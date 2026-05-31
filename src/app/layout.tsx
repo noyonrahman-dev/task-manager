@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 
+import { OfflineBanner } from "@/components/pwa/offline-banner";
+import { Pwa } from "@/components/pwa/pwa";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -59,6 +61,28 @@ export const metadata: Metadata = {
     follow: true,
   },
   manifest: "/manifest.webmanifest",
+  // iOS-specific PWA hints. Tells Safari to treat the app as a standalone
+  // application when launched from the home screen, with a translucent
+  // status bar that blends into our dark/light themes.
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: APP_NAME,
+  },
+  // Stop iOS Safari from auto-linking phone numbers / addresses inside
+  // task descriptions — purely a polish thing for the standalone shell.
+  formatDetection: {
+    telephone: false,
+    email: false,
+    address: false,
+  },
+  other: {
+    // Windows tile customisation when pinned via Edge.
+    "msapplication-TileColor": "#6366f1",
+    "msapplication-tap-highlight": "no",
+    // Hint Chromium to keep the SW + cache warm during background sync.
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
@@ -76,8 +100,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning className={`${fontSans.variable} ${fontMono.variable}`}>
       <body className="min-h-dvh font-sans antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <Pwa />
           <div className="flex min-h-dvh flex-col">
             <SiteHeader />
+            <OfflineBanner />
             <main className="flex-1">{children}</main>
             <SiteFooter />
           </div>

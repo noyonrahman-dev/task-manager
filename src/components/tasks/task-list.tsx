@@ -7,16 +7,14 @@ import type { Task } from "@/lib/types";
 
 interface TaskListProps {
   tasks: Task[];
-  onToggleDone?: (id: string) => void;
-  onDelete?: (id: string) => void;
 }
 
-export function TaskList({ tasks, onToggleDone, onDelete }: TaskListProps) {
+export function TaskList({ tasks }: TaskListProps) {
   return (
     <ul className="flex flex-col gap-2.5">
       {tasks.map((task) => (
         <li key={task.id}>
-          <TaskCard task={task} onToggleDone={onToggleDone} onDelete={onDelete} />
+          <TaskCard task={task} />
         </li>
       ))}
     </ul>

@@ -11,7 +11,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { format, formatDistanceToNowStrict, isPast, isToday } from "date-fns";
-import { toast } from "sonner";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -26,20 +25,13 @@ import { Button } from "@/components/ui/button";
 import { PriorityBadge } from "@/components/tasks/priority-badge";
 import { StatusBadge } from "@/components/tasks/status-badge";
 import { TaskFormDialog } from "@/components/tasks/task-form-dialog";
-import {
-  deleteTask,
-  toggleTaskDone,
-  updateTask,
-} from "@/lib/actions/tasks";
+import { useTasks } from "@/components/tasks/tasks-store";
 import { STATUS_LABEL, TASK_STATUSES, type TaskStatus } from "@/lib/constants";
 import type { Task } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface TaskCardProps {
   task: Task;
-  /** Optional optimistic toggle handler. Falls back to direct server action. */
-  onToggleDone?: (id: string) => void;
-  onDelete?: (id: string) => void;
 }
 
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
@@ -48,46 +40,11 @@ const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }
   done: Check,
 };
 
-export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
+export function TaskCard({ task }: TaskCardProps) {
+  const { toggleTask, removeTask, updateTask } = useTasks();
   const [editing, setEditing] = React.useState(false);
-  const [, startTransition] = React.useTransition();
 
   const isDone = task.status === "done";
-
-  function handleToggle() {
-    if (onToggleDone) {
-      onToggleDone(task.id);
-      return;
-    }
-    startTransition(async () => {
-      const r = await toggleTaskDone({ id: task.id });
-      if (!r.ok) toast.error(r.error ?? "Could not update task");
-    });
-  }
-
-  function handleStatusChange(status: TaskStatus) {
-    if (status === task.status) return;
-    startTransition(async () => {
-      const r = await updateTask({ id: task.id, status });
-      if (!r.ok) {
-        toast.error(r.error ?? "Could not update task");
-      } else {
-        toast.success(`Moved to ${STATUS_LABEL[status]}`);
-      }
-    });
-  }
-
-  function handleDelete() {
-    if (onDelete) {
-      onDelete(task.id);
-      return;
-    }
-    startTransition(async () => {
-      const r = await deleteTask({ id: task.id });
-      if (!r.ok) toast.error(r.error ?? "Could not delete task");
-      else toast.success("Task deleted");
-    });
-  }
 
   const due = task.dueDate ? new Date(task.dueDate) : null;
   const overdue = due ? !isDone && isPast(due) && !isToday(due) : false;
@@ -110,7 +67,7 @@ export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
       <div className="pt-0.5">
         <Checkbox
           checked={isDone}
-          onCheckedChange={handleToggle}
+          onCheckedChange={() => void toggleTask(task.id)}
           aria-label={isDone ? "Mark as not done" : "Mark as done"}
         />
       </div>
@@ -163,7 +120,7 @@ export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
                   <DropdownMenuItem
                     key={s}
                     disabled={s === task.status}
-                    onSelect={() => handleStatusChange(s)}
+                    onSelect={() => void updateTask(task.id, { status: s })}
                   >
                     <Icon /> {STATUS_LABEL[s]}
                   </DropdownMenuItem>
@@ -171,7 +128,7 @@ export function TaskCard({ task, onToggleDone, onDelete }: TaskCardProps) {
               })}
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onSelect={handleDelete}
+                onSelect={() => void removeTask(task.id)}
                 className="text-destructive focus:bg-destructive/10 focus:text-destructive"
               >
                 <Trash2 /> Delete
